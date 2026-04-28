@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'ai' => [
+        'key' => env('AI_MODEL_ACCESS_KEY'),
+        'base_url' => env('AI_BASE_URL', 'https://inference.do-ai.run/v1'),
+        'model' => env('AI_MODEL', 'openai-gpt-5-mini'),
+    ],
+
 ];

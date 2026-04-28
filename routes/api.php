@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ChatbotController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -15,4 +16,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', [UserController::class, 'profile']);
     Route::put('/user', [UserController::class, 'updateProfile']);
     Route::post('/user/avatar', [UserController::class, 'updateAvatar']);
+
+    Route::post('/chatbot/chat', [ChatbotController::class, 'chat']);
+    Route::get('/chatbot/sessions', [ChatbotController::class, 'index']);
+    Route::get('/chatbot/sessions/{session}', [ChatbotController::class, 'show']);
+    Route::delete('/chatbot/sessions/{session}', [ChatbotController::class, 'destroy']);
 });
