@@ -74,7 +74,7 @@ class ChatbotController extends Controller
       ->all();
 
     $response = Http::withToken(config('services.ai.key'))
-      ->timeout(120)
+      ->timeout(0)
       ->when(app()->isLocal(), fn($h) => $h->withoutVerifying())
       ->acceptJson()
       ->asJson()
