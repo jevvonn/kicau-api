@@ -1,0 +1,43 @@
+# Local Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Version Control
+.git/
+.gitignore
+.gitattributes
+
+# Laravel Specific
+vendor/
+node_modules/
+storage/*.key
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*.php
+storage/logs/*.log
+bootstrap/cache/*.php
+!bootstrap/cache/.gitignore
+
+# Testing
+tests/
+.phpunit.result.cache
+.phpunit.cache/
+
+# IDE & Editor Files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Docker Files (Avoid copying Docker configs into the image)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# OS files
+.DS_Store
+Thumbs.db
