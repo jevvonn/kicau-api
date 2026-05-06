@@ -1,8 +1,8 @@
-# Kanca Clone API
+# Kicau Api - Kanca Clone API
 
-REST API backend untuk **Kanca Clone**, proyek akhir mata kuliah **Teknologi Integrasi Sistem**.
+REST API backend untuk **Kicau**, proyek akhir mata kuliah **Teknologi Integrasi Sistem**.
 
-> Terinspirasi dari aplikasi **Kanca** — pemenang **BI OJK Hackathon 2025** yang dikembangkan oleh tim dari Universitas Indonesia.
+> Terinspirasi dari aplikasi **Kanca** — pemenang **BI OJK Hackathon 2025** yang dikembangkan oleh tim dari Unversitas Binus.
 
 ---
 
