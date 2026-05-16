@@ -15,6 +15,7 @@ class AuthController extends Controller
       'name' => 'required|string|max:255',
       'email' => 'required|string|email|max:255|unique:users',
       'password' => 'required|string|min:8|confirmed',
+      'children_age' => 'integer|min:5',
     ], [
       'name.required' => 'Nama wajib diisi.',
       'name.string' => 'Nama harus berupa teks.',
@@ -28,12 +29,15 @@ class AuthController extends Controller
       'password.string' => 'Password harus berupa teks.',
       'password.min' => 'Password minimal 8 karakter.',
       'password.confirmed' => 'Konfirmasi password tidak cocok.',
+      'children_age.integer' => 'Umur anak harus berupa angka.',
+      'children_age.min' => 'Umur anak minimal 5 tahun.',
     ]);
 
     $user = User::create([
       'name' => $request->name,
       'email' => $request->email,
       'password' => Hash::make($request->password),
+      'children_age' => $request->children_age,
     ]);
 
     return response()->json([
