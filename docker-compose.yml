@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: kanca-clone-app
+    container_name: kicau-api-app
     restart: unless-stopped
     entrypoint: php artisan octane:frankenphp --workers=1 --max-requests=1
     ports:
@@ -27,7 +27,7 @@ services:
 
   mysql:
     image: mysql:8.0-debian
-    container_name: kanca-clone-mysql
+    container_name: kicau-api-mysql
     restart: unless-stopped
     ports:
       - "3306:3306"
