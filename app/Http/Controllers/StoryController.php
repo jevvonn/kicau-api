@@ -11,6 +11,14 @@ class StoryController extends Controller
 {
     public function generate(Request $request)
     {
+        $validated = $request->validate([
+            'prompt' => 'required|string',
+            'nilai_moral' => 'required|string',
+            'story_idea' => 'required|string',
+        ]);
+
+        set_time_limit(0);
+
         $user = $request->user();
 
         $gatewayUrl = config('services.ai.gateway_url');
@@ -25,7 +33,7 @@ class StoryController extends Controller
             ->when(app()->isLocal(), fn($h) => $h->withoutVerifying())
             ->acceptJson()
             ->asJson()
-            ->post(rtrim($gatewayUrl, '/') . '/api/v1/story', (object) []);
+            ->post(rtrim($gatewayUrl, '/') . '/api/v1/story', $validated);
 
         if ($response->failed()) {
             return response()->json([
