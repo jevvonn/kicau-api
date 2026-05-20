@@ -6,6 +6,7 @@ use App\Models\Story;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class StoryController extends Controller
 {
@@ -62,7 +63,7 @@ class StoryController extends Controller
                     'order_index' => $item['order_index'] ?? $index,
                     'narrative' => $item['narrative'] ?? '',
                     'image_prompt' => $item['image_prompt'] ?? null,
-                    'image_url' => $item['image_url'] ?? null,
+                    'image_url' => null,
                 ]);
 
                 $question = $item['question'] ?? null;
@@ -100,6 +101,137 @@ class StoryController extends Controller
         $story->load($this->relations());
 
         return response()->json($this->transform($story));
+    }
+
+    public function generateImages(Request $request, Story $story)
+    {
+        $tokenParam = $request->query('token');
+
+        abort_if(!is_string($tokenParam) || $tokenParam === '', 401, 'Token tidak ditemukan.');
+
+        $accessToken = PersonalAccessToken::findToken($tokenParam);
+
+        abort_if(!$accessToken, 401, 'Token tidak valid.');
+
+        $user = $accessToken->tokenable;
+
+        abort_if(!$user, 401, 'Token tidak valid.');
+
+        abort_if($story->user_id !== $user->id, 403, 'Anda tidak memiliki akses ke cerita ini.');
+
+        set_time_limit(0);
+
+        $gatewayUrl = config('services.ai.gateway_url');
+
+        return response()->stream(function () use ($story, $gatewayUrl) {
+            $send = function (string $event, array $data) {
+                echo "event: {$event}\n";
+                echo 'data: ' . json_encode($data) . "\n\n";
+                if (ob_get_level() > 0) {
+                    ob_flush();
+                }
+                flush();
+            };
+
+            $ping = function () {
+                echo ": ping\n\n";
+                if (ob_get_level() > 0) {
+                    ob_flush();
+                }
+                flush();
+            };
+
+            if (empty($gatewayUrl)) {
+                $send('error', ['message' => 'AI gateway belum dikonfigurasi.']);
+                return;
+            }
+
+            $items = $story->items()
+                ->whereNull('image_url')
+                ->whereNotNull('image_prompt')
+                ->orderBy('order_index')
+                ->get();
+
+            $total = $items->count();
+
+            if ($total === 0) {
+                $send('done', ['message' => 'Tidak ada ilustrasi yang perlu dibuat.']);
+                return;
+            }
+
+            $send('start', ['total' => $total]);
+            $send('progress', [
+                'message' => "Membuat {$total} ilustrasi...",
+                'total' => $total,
+            ]);
+            $ping();
+
+            $prompts = $items->pluck('image_prompt')->values()->all();
+
+            try {
+                $data = [
+                    'prompts' => $prompts,
+                    'bucket' => 'generated-images',
+                    'image_size' => '1280x720',
+                ];
+
+                $response = Http::timeout(0)
+                    ->when(app()->isLocal(), fn($h) => $h->withoutVerifying())
+                    ->acceptJson()
+                    ->asJson()
+                    ->post(rtrim($gatewayUrl, '/') . '/api/v1/image', $data);
+            } catch (\Throwable $e) {
+                $send('error', ['message' => $e->getMessage()]);
+                return;
+            }
+
+            if ($response->failed()) {
+                $send('error', [
+                    'message' => 'Gagal menghubungi layanan AI.',
+                    'error' => $response->json() ?? $response->body(),
+                ]);
+                return;
+            }
+
+            $imageUrls = $response->json('image_urls');
+
+            if (!is_array($imageUrls)) {
+                $send('error', ['message' => 'Respon AI tidak valid.']);
+                return;
+            }
+
+            foreach ($items as $index => $item) {
+                $step = $index + 1;
+                $imageUrl = $imageUrls[$index] ?? null;
+
+                if (!is_string($imageUrl) || $imageUrl === '') {
+                    $send('image_failed', [
+                        'item_id' => $item->id,
+                        'step' => $step,
+                        'total' => $total,
+                        'message' => "Ilustrasi {$step} tidak tersedia.",
+                    ]);
+                    continue;
+                }
+
+                $item->update(['image_url' => $imageUrl]);
+
+                $send('image_ready', [
+                    'item_id' => $item->id,
+                    'order_index' => $item->order_index,
+                    'image_url' => $imageUrl,
+                    'step' => $step,
+                    'total' => $total,
+                ]);
+            }
+
+            $send('done', ['message' => 'Semua ilustrasi selesai dibuat.', 'total' => $total]);
+        }, 200, [
+            'Content-Type' => 'text/event-stream',
+            'Cache-Control' => 'no-cache',
+            'X-Accel-Buffering' => 'no',
+            'Connection' => 'keep-alive',
+        ]);
     }
 
     private function relations(): array

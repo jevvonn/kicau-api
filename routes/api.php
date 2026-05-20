@@ -14,6 +14,9 @@ Route::post('/login', [AuthController::class, 'login']);
 // Storage routes (public)
 Route::post('/storage/upload', [StorageController::class, 'upload']);
 
+// SSE image generation (public — auth via ?token= query param)
+Route::get('/stories/{story}/generate-images', [StoryController::class, 'generateImages']);
+
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
