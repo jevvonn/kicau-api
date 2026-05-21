@@ -40,6 +40,8 @@ return [
         'base_url' => env('AI_BASE_URL', 'https://inference.do-ai.run/v1'),
         'model' => env('AI_MODEL', 'openai-gpt-5-mini'),
         'gateway_url' => env('AI_GATEWAY_API_URL'),
+        'image_base_url' => env('AI_IMAGE_BASE_URL'),
+        'image_key' => env('AI_IMAGE_KEY'),
     ],
 
 ];

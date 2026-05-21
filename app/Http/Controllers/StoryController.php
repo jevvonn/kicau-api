@@ -6,6 +6,8 @@ use App\Models\Story;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
 
 class StoryController extends Controller
@@ -121,9 +123,10 @@ class StoryController extends Controller
 
         set_time_limit(0);
 
-        $gatewayUrl = config('services.ai.gateway_url');
+        $imageBaseUrl = config('services.ai.image_base_url');
+        $imageKey = config('services.ai.image_key');
 
-        return response()->stream(function () use ($story, $gatewayUrl) {
+        return response()->stream(function () use ($story, $imageBaseUrl, $imageKey) {
             $send = function (string $event, array $data) {
                 echo "event: {$event}\n";
                 echo 'data: ' . json_encode($data) . "\n\n";
@@ -141,8 +144,8 @@ class StoryController extends Controller
                 flush();
             };
 
-            if (empty($gatewayUrl)) {
-                $send('error', ['message' => 'AI gateway belum dikonfigurasi.']);
+            if (empty($imageBaseUrl) || empty($imageKey)) {
+                $send('error', ['message' => 'Layanan gambar AI belum dikonfigurasi.']);
                 return;
             }
 
@@ -166,55 +169,131 @@ class StoryController extends Controller
             ]);
             $ping();
 
-            $prompts = $items->pluck('image_prompt')->values()->all();
+            $previousImageBinary = null;
+            $previousImageFilename = null;
 
-            try {
-                $data = [
-                    'prompts' => $prompts,
-                    'bucket' => 'generated-images',
-                    'image_size' => '1280x720',
-                ];
-
-                $response = Http::timeout(0)
-                    ->when(app()->isLocal(), fn($h) => $h->withoutVerifying())
-                    ->acceptJson()
-                    ->asJson()
-                    ->post(rtrim($gatewayUrl, '/') . '/api/v1/image', $data);
-            } catch (\Throwable $e) {
-                $send('error', ['message' => $e->getMessage()]);
-                return;
-            }
-
-            if ($response->failed()) {
-                $send('error', [
-                    'message' => 'Gagal menghubungi layanan AI.',
-                    'error' => $response->json() ?? $response->body(),
-                ]);
-                return;
-            }
-
-            $imageUrls = $response->json('image_urls');
-
-            if (!is_array($imageUrls)) {
-                $send('error', ['message' => 'Respon AI tidak valid.']);
-                return;
-            }
+            $maxAttempts = 3;
 
             foreach ($items as $index => $item) {
                 $step = $index + 1;
-                $imageUrl = $imageUrls[$index] ?? null;
+                $prompt = (string) $item->image_prompt;
 
-                if (!is_string($imageUrl) || $imageUrl === '') {
+                $binary = null;
+                $lastError = null;
+
+                for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+                    try {
+                        if ($previousImageBinary === null) {
+                            $response = Http::timeout(0)
+                                ->when(app()->isLocal(), fn($h) => $h->withoutVerifying())
+                                ->withHeaders(['Authorization' => 'Bearer ' . $imageKey])
+                                ->acceptJson()
+                                ->asJson()
+                                ->post($imageBaseUrl . '/images/generations?api-version=2025-04-01-preview', [
+                                    'prompt' => $prompt,
+                                    'size' => '1536x1024',
+                                    'quality' => 'low',
+                                    'output_compression' => 100,
+                                    'output_format' => 'jpeg',
+                                    'n' => 1,
+                                ]);
+                        } else {
+                            $response = Http::timeout(0)
+                                ->when(app()->isLocal(), fn($h) => $h->withoutVerifying())
+                                ->withHeaders(['Authorization' => 'Bearer ' . $imageKey])
+                                ->acceptJson()
+                                ->attach('image', $previousImageBinary, $previousImageFilename, ['Content-Type' => 'image/jpeg'])
+                                ->asMultipart()
+                                ->post($imageBaseUrl . '/images/edits?api-version=2025-04-01-preview', [
+                                    ['name' => 'prompt', 'contents' => $prompt],
+                                    ['name' => 'size', 'contents' => '1536x1024'],
+                                    ['name' => 'quality', 'contents' => 'low'],
+                                    ['name' => 'output_compression', 'contents' => 100],
+                                    ['name' => 'output_format', 'contents' => 'jpeg'],
+                                    ['name' => 'n', 'contents' => '1'],
+                                ]);
+                        }
+                    } catch (\Throwable $e) {
+                        $lastError = $e->getMessage();
+                        $send('image_retry', [
+                            'item_id' => $item->id,
+                            'step' => $step,
+                            'total' => $total,
+                            'attempt' => $attempt,
+                            'max_attempts' => $maxAttempts,
+                            'message' => "Ilustrasi {$step} percobaan {$attempt} gagal: {$lastError}",
+                        ]);
+                        continue;
+                    }
+
+                    if ($response->failed()) {
+                        $lastError = $response->json() ?? $response->body();
+                        $send('image_retry', [
+                            'item_id' => $item->id,
+                            'step' => $step,
+                            'total' => $total,
+                            'attempt' => $attempt,
+                            'max_attempts' => $maxAttempts,
+                            'message' => "Ilustrasi {$step} percobaan {$attempt} gagal dibuat.",
+                            'error' => $lastError,
+                        ]);
+                        continue;
+                    }
+
+                    $b64 = $response->json('data.0.b64_json');
+
+                    if (!is_string($b64) || $b64 === '') {
+                        $lastError = 'Respon AI tidak valid.';
+                        $send('image_retry', [
+                            'item_id' => $item->id,
+                            'step' => $step,
+                            'total' => $total,
+                            'attempt' => $attempt,
+                            'max_attempts' => $maxAttempts,
+                            'message' => "Ilustrasi {$step} percobaan {$attempt} tidak tersedia.",
+                        ]);
+                        continue;
+                    }
+
+                    $decoded = base64_decode($b64, true);
+
+                    if ($decoded === false) {
+                        $lastError = 'Gagal dekode base64.';
+                        $send('image_retry', [
+                            'item_id' => $item->id,
+                            'step' => $step,
+                            'total' => $total,
+                            'attempt' => $attempt,
+                            'max_attempts' => $maxAttempts,
+                            'message' => "Ilustrasi {$step} percobaan {$attempt} tidak dapat didekode.",
+                        ]);
+                        continue;
+                    }
+
+                    $binary = $decoded;
+                    break;
+                }
+
+                if ($binary === null) {
                     $send('image_failed', [
                         'item_id' => $item->id,
                         'step' => $step,
                         'total' => $total,
-                        'message' => "Ilustrasi {$step} tidak tersedia.",
+                        'message' => "Ilustrasi {$step} gagal setelah {$maxAttempts} percobaan.",
+                        'error' => $lastError,
                     ]);
                     continue;
                 }
 
+                $filename = Str::uuid() . '.jpeg';
+                $path = 'generated-images/' . $filename;
+                Storage::disk('public')->put($path, $binary);
+                $imageUrl = url(Storage::url($path));
+
                 $item->update(['image_url' => $imageUrl]);
+
+                $previousImageBinary = $binary;
+                $previousImageFilename = $filename;
 
                 $send('image_ready', [
                     'item_id' => $item->id,
