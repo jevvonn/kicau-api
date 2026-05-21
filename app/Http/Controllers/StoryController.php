@@ -12,6 +12,24 @@ use Laravel\Sanctum\PersonalAccessToken;
 
 class StoryController extends Controller
 {
+    public function index(Request $request)
+    {
+        $validated = $request->validate([
+            'size' => 'nullable|integer|min:1',
+        ]);
+
+        $query = Story::query()
+            ->where('user_id', $request->user()->id)
+            ->orderByDesc('created_at')
+            ->select(['id', 'title', 'moral_message', 'created_at']);
+
+        if (!empty($validated['size'])) {
+            $query->limit($validated['size']);
+        }
+
+        return response()->json($query->get());
+    }
+
     public function generate(Request $request)
     {
         $validated = $request->validate([
@@ -53,10 +71,13 @@ class StoryController extends Controller
             ], 502);
         }
 
-        $story = DB::transaction(function () use ($payload, $user) {
+        $nilaiMoral = $validated['nilai_moral'];
+
+        $story = DB::transaction(function () use ($payload, $user, $nilaiMoral) {
             $story = Story::create([
                 'user_id' => $user->id,
                 'title' => $payload['title'],
+                'nilai_moral' => $nilaiMoral,
                 'moral_message' => $payload['moral_message'] ?? null,
             ]);
 
@@ -332,8 +353,10 @@ class StoryController extends Controller
                 $question = null;
                 if ($item->question) {
                     $question = [
+                        'id' => $item->question->id,
                         'prompt' => $item->question->prompt,
                         'choices' => $item->question->choices->map(fn($c) => [
+                            'id' => $c->id,
                             'text' => $c->text,
                             'is_correct' => $c->is_correct,
                         ])->all(),

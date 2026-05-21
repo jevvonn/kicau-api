@@ -11,6 +11,7 @@ class Story extends Model
     protected $fillable = [
         'user_id',
         'title',
+        'nilai_moral',
         'moral_message',
     ];
 
